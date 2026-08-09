@@ -1,0 +1,373 @@
+/* ------------------------------------------------------------
+   Tokens
+------------------------------------------------------------ */
+:root {
+  --bg: #0f0f12;
+  --surface: #17171b;
+  --surface-hover: #1f1f24;
+  --border: #2b2b31;
+  --text: #f3f0e8;
+  --muted: #93939c;
+  --accent: #ffb100;
+  --accent-soft: #ffd166;
+  --success: #52c785;
+  --error: #ff6b5e;
+  --radius: 14px;
+  --font-display: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-body: -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Intentionally kept dark regardless of system theme:
+       a dim room / event lighting is the expected context. */
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ------------------------------------------------------------
+   Flash overlay (signature moment on successful upload)
+------------------------------------------------------------ */
+.flash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 999;
+}
+
+.flash.fire {
+  animation: flash-pulse 550ms ease-out;
+}
+
+@keyframes flash-pulse {
+  0%   { opacity: 0; }
+  12%  { opacity: 0.92; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash.fire { animation: none; }
+}
+
+/* ------------------------------------------------------------
+   Layout
+------------------------------------------------------------ */
+.page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 48px 20px 40px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.intro {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.heading {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.subheading {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 340px;
+  margin-inline: auto;
+}
+
+/* ------------------------------------------------------------
+   Uploader
+------------------------------------------------------------ */
+.uploader {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 44px 20px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  text-align: center;
+  transition: background 150ms ease, border-color 150ms ease;
+  min-height: 220px;
+}
+
+.dropzone:hover,
+.dropzone:focus-within {
+  background: var(--surface-hover);
+}
+
+.dropzone.is-dragover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.dropzone-icon {
+  width: 46px;
+  height: 46px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.dropzone-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.dropzone-text span:last-child {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+/* Viewfinder corner brackets — the signature visual element */
+.corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--accent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.corner--tl { top: 10px; left: 10px; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
+.corner--tr { top: 10px; right: 10px; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
+.corner--bl { bottom: 10px; left: 10px; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
+.corner--br { bottom: 10px; right: 10px; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
+
+/* ------------------------------------------------------------
+   Selected file list
+------------------------------------------------------------ */
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.file-list:empty {
+  display: none;
+}
+
+.file-item {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.file-item img,
+.file-item video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.file-item .kind-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+.file-item .remove-btn {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-item.is-invalid {
+  border-color: var(--error);
+}
+
+.file-item .invalid-note {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--error);
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* ------------------------------------------------------------
+   Submit button
+------------------------------------------------------------ */
+.submit-btn {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #14110a;
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent));
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.submit-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.submit-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* ------------------------------------------------------------
+   Progress
+------------------------------------------------------------ */
+.progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+  transition: width 180ms ease;
+}
+
+.progress-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------
+   Status message
+------------------------------------------------------------ */
+.status {
+  margin: 0;
+  font-size: 14px;
+  text-align: center;
+  min-height: 20px;
+}
+
+.status.success { color: var(--success); }
+.status.error { color: var(--error); }
+
+/* ------------------------------------------------------------
+   Footer
+------------------------------------------------------------ */
+.foot-note {
+  margin-top: 32px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------
+   Focus visibility
+------------------------------------------------------------ */
+a:focus-visible,
+button:focus-visible,
+.dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------
+   Small screens
+------------------------------------------------------------ */
+@media (max-width: 360px) {
+  .heading { font-size: 28px; }
+  .file-list { grid-template-columns: repeat(3, 1fr); }
+}
