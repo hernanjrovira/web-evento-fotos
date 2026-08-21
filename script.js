@@ -1,11 +1,11 @@
 /* ==============================================================
-   CONFIGURACIÓN — completá estos tres valores con los tuyos.
-   Ver README.md para el paso a paso de Cloudinary.
+   CONFIGURACIÓN — completá estos valores con los tuyos.
+   Ver README.md para el paso a paso de Cloudinary y del backend.
 ================================================================= */
 const CLOUDINARY_CONFIG = {
-  cloudName: "rrromouo",       // ej: "dxample123"
-  uploadPreset: "evento-fotos-isa", // preset unsigned creado en Cloudinary
-  folder: "evento",                 // carpeta dentro de tu cuenta de Cloudinary (opcional)
+  cloudName: "rrromouo",
+  uploadPreset: "evento-fotos-isa",
+  folder: "evento",
 };
 
 /* Límites de validación en el frontend.
@@ -15,6 +15,13 @@ const CLOUDINARY_CONFIG = {
 const MAX_IMAGE_MB = 30;
 const MAX_VIDEO_MB = 300;
 const MAX_FILES = 50;
+
+/* Endpoint propio (Vercel Serverless Function) para estadísticas
+   globales. Es "best effort": si falla, no interrumpe la subida real. */
+const LOG_UPLOAD_ENDPOINT = "/api/log-upload";
+
+/* Minutos de inactividad antes de mostrar el aviso de sesión expirada. */
+const IDLE_LIMIT_MS = 30 * 60 * 1000;
 
 /* ==============================================================
    Estado y referencias al DOM
@@ -29,10 +36,107 @@ const progressFill = document.getElementById("progress-fill");
 const progressLabel = document.getElementById("progress-label");
 const statusEl = document.getElementById("status");
 const flashEl = document.getElementById("flash");
+const sessionCounterEl = document.getElementById("session-counter");
+const idleOverlay = document.getElementById("idle-overlay");
+const idleReloadBtn = document.getElementById("idle-reload-btn");
 
 // Cada entrada: { file, id, valid, reason }
 let selectedFiles = [];
 let isUploading = false;
+
+/* ==============================================================
+   Identidad del dispositivo (para las estadísticas globales)
+   — no es autenticación, solo un id anónimo guardado en localStorage.
+================================================================= */
+function getDeviceId() {
+  const KEY = "eventoDeviceId";
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+const DEVICE_ID = getDeviceId();
+
+/* ==============================================================
+   Contador de sesión (Mejora 3) — persiste en localStorage.
+   Solo se limpia si el usuario borra el caché del navegador.
+================================================================= */
+const SESSION_STATS_KEY = "eventoSessionStats";
+
+function loadSessionStats() {
+  try {
+    const raw = localStorage.getItem(SESSION_STATS_KEY);
+    if (!raw) return { count: 0, totalMb: 0 };
+    const parsed = JSON.parse(raw);
+    return {
+      count: Number(parsed.count) || 0,
+      totalMb: Number(parsed.totalMb) || 0,
+    };
+  } catch {
+    return { count: 0, totalMb: 0 };
+  }
+}
+
+function saveSessionStats(stats) {
+  localStorage.setItem(SESSION_STATS_KEY, JSON.stringify(stats));
+}
+
+function registerSuccessfulUpload(fileSizeBytes) {
+  const stats = loadSessionStats();
+  stats.count += 1;
+  stats.totalMb += fileSizeBytes / (1024 * 1024);
+  saveSessionStats(stats);
+  renderSessionCounter(stats);
+}
+
+function renderSessionCounter(stats) {
+  const s = stats || loadSessionStats();
+  if (s.count === 0) {
+    sessionCounterEl.textContent = "";
+    return;
+  }
+  sessionCounterEl.textContent = `✨ Fotos mágicas subidas: ${s.count} | Tamaño: ${s.totalMb.toFixed(1)} MB`;
+}
+
+renderSessionCounter();
+
+/* ==============================================================
+   Detección de inactividad (Mejora 2)
+   No corta la subida en curso: si el usuario está subiendo algo,
+   se posterga el aviso hasta que termine.
+================================================================= */
+let idleTimer = null;
+
+function scheduleIdleCheck() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (isUploading) {
+      // Reintentar más tarde en vez de interrumpir una subida activa.
+      scheduleIdleCheck();
+      return;
+    }
+    showIdleOverlay();
+  }, IDLE_LIMIT_MS);
+}
+
+function showIdleOverlay() {
+  idleOverlay.hidden = false;
+}
+
+["mousemove", "keydown", "click", "touchstart", "scroll"].forEach((evt) => {
+  window.addEventListener(evt, scheduleIdleCheck, { passive: true });
+});
+
+idleReloadBtn.addEventListener("click", () => {
+  window.location.reload();
+});
+
+// scheduleIdleCheck();
 
 /* ==============================================================
    Selección de archivos (input nativo + drag & drop)
@@ -74,6 +178,7 @@ function addFiles(newFiles) {
     selectedFiles.push({
       file,
       id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      confirmed: false,
       ...validateFile(file),
     });
   }
@@ -131,6 +236,7 @@ function renderFileList() {
       const badge = document.createElement("span");
       badge.className = "kind-badge";
       badge.textContent = isVideo ? "Video" : "Foto";
+      badge.dataset.role = "kind-badge";
       li.appendChild(badge);
     } else {
       const note = document.createElement("span");
@@ -139,15 +245,26 @@ function renderFileList() {
       li.appendChild(note);
     }
 
-    const removeBtn = document.createElement("button");
-    removeBtn.type = "button";
-    removeBtn.className = "remove-btn";
-    removeBtn.setAttribute("aria-label", "Quitar archivo");
-    removeBtn.textContent = "✕";
-    removeBtn.addEventListener("click", () => removeFile(entry.id));
-    li.appendChild(removeBtn);
+    if (!isUploading) {
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "remove-btn";
+      removeBtn.setAttribute("aria-label", "Quitar archivo");
+      removeBtn.textContent = "✕";
+      removeBtn.addEventListener("click", () => removeFile(entry.id));
+      li.appendChild(removeBtn);
+    }
 
     fileListEl.appendChild(li);
+  }
+}
+
+function markFileConfirmed(id) {
+  const li = fileListEl.querySelector(`[data-id="${id}"]`);
+  const badge = li?.querySelector('[data-role="kind-badge"]');
+  if (badge) {
+    badge.textContent = "✓ Lista";
+    badge.classList.add("is-done");
   }
 }
 
@@ -158,12 +275,24 @@ function removeFile(id) {
 }
 
 function updateSubmitState() {
-  const hasValidFile = selectedFiles.some((entry) => entry.valid);
-  submitBtn.disabled = !hasValidFile || isUploading;
+  const validCount = selectedFiles.filter((entry) => entry.valid).length;
+  submitBtn.disabled = validCount === 0 || isUploading;
+  if (isUploading) {
+    submitBtn.textContent = "Enviando fotos...";
+  } else if (validCount > 1) {
+    submitBtn.textContent = `Enviar ${validCount} Fotos`;
+  } else if (validCount === 1) {
+    submitBtn.textContent = "Enviar 1 Foto";
+  } else {
+    submitBtn.textContent = "¡Enviar!";
+  }
 }
 
 /* ==============================================================
    Subida a Cloudinary (unsigned upload preset, sin login)
+   Mejora 1: progreso real por bytes + fase "Procesando" mientras
+   Cloudinary confirma, y el botón queda deshabilitado hasta que
+   TODAS las respuestas fueron confirmadas.
 ================================================================= */
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -187,21 +316,31 @@ form.addEventListener("submit", async (e) => {
   }
 
   isUploading = true;
-  submitBtn.disabled = true;
+  updateSubmitState();
+  renderFileList(); // oculta los botones de "quitar" mientras sube
   setStatus("", "");
   showProgress(true);
 
-  let uploaded = 0;
-  let failed = 0;
+  let confirmedCount = 0;
+  let failedCount = 0;
   const totalBytes = toUpload.reduce((sum, entry) => sum + entry.file.size, 0);
-  let sentBytesByFile = new Array(toUpload.length).fill(0);
+  const sentBytesByFile = new Array(toUpload.length).fill(0);
 
   const updateOverallProgress = () => {
     const sent = sentBytesByFile.reduce((a, b) => a + b, 0);
-    const pct = totalBytes ? Math.min(100, Math.round((sent / totalBytes) * 100)) : 0;
-    progressFill.style.width = pct + "%";
-    progressLabel.textContent = `Subiendo ${pct}%`;
+    const pctSent = totalBytes ? Math.min(100, Math.round((sent / totalBytes) * 100)) : 0;
+    progressFill.style.width = pctSent + "%";
+
+    if (pctSent < 100) {
+      progressLabel.textContent = `Enviando ${pctSent}%`;
+    } else if (confirmedCount < toUpload.length) {
+      progressLabel.textContent = "Guardando en el álbum...";
+    } else {
+      progressLabel.textContent = "✨ ¡Fotos mágicas subidas!";
+    }
   };
+
+  updateOverallProgress();
 
   await Promise.all(
     toUpload.map((entry, index) =>
@@ -210,42 +349,53 @@ form.addEventListener("submit", async (e) => {
         updateOverallProgress();
       })
         .then(() => {
-          uploaded += 1;
+          confirmedCount += 1;
           sentBytesByFile[index] = entry.file.size;
+          entry.confirmed = true;
+          markFileConfirmed(entry.id);
+          registerSuccessfulUpload(entry.file.size);
+          logUploadToBackend(entry.file);
           updateOverallProgress();
         })
-        .catch(() => {
-          failed += 1;
+        .catch((err) => {
+          failedCount += 1;
+          entry.lastError = friendlyUploadError(err);
+          updateOverallProgress();
         })
     )
   );
 
   isUploading = false;
-  showProgress(false);
 
-  if (failed === 0) {
+  if (failedCount === 0) {
+    progressLabel.textContent = "✨ ¡Fotos mágicas subidas con éxito!";
     setStatus(
-      uploaded === 1
-        ? "¡Listo! Tu archivo se subió correctamente."
-        : `¡Listo! Se subieron ${uploaded} archivos correctamente.`,
+      confirmedCount === 1
+        ? "🌸 ¡Listo! Tu foto mágica se subió correctamente."
+        : `🌸 ¡Listo! Se subieron ${confirmedCount} fotos mágicas correctamente.`,
       "success"
     );
     fireFlash();
     selectedFiles = [];
-    renderFileList();
-  } else if (uploaded > 0) {
+  } else if (confirmedCount > 0) {
+    const firstError = toUpload.find((e) => e.lastError)?.lastError;
     setStatus(
-      `Se subieron ${uploaded} archivos, pero ${failed} no se pudieron subir. Probá de nuevo con esos.`,
+      `Se subieron ${confirmedCount} fotos, pero ${failedCount} no se pudieron subir` +
+      (firstError ? ` (${firstError})` : "") +
+      ". Probá de nuevo con esas.",
       "error"
     );
-    selectedFiles = selectedFiles.filter((entry) => !entry.valid);
+    selectedFiles = selectedFiles.filter((entry) => !entry.valid || !entry.confirmed);
   } else {
+    const firstError = toUpload.find((e) => e.lastError)?.lastError;
     setStatus(
-      "No se pudo subir ningún archivo. Revisá tu conexión e intentá nuevamente.",
+      firstError || "No se pudo subir ningún archivo. Revisá tu conexión e intentá nuevamente.",
       "error"
     );
   }
 
+  setTimeout(() => showProgress(false), failedCount === 0 ? 1200 : 0);
+  renderFileList();
   updateSubmitState();
 });
 
@@ -262,22 +412,74 @@ function uploadToCloudinary(file, onProgress) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
 
+    // Progreso REAL de bytes enviados (evento nativo de XHR, no simulado).
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) onProgress(e.loaded);
     });
 
     xhr.onload = () => {
+      // Los bytes ya llegaron (100%), pero recién acá tenemos la
+      // confirmación real del servidor — por eso la fase "Procesando"
+      // vive entre el último evento de progreso y este callback.
       if (xhr.status >= 200 && xhr.status < 300) {
         onProgress(file.size);
         resolve(JSON.parse(xhr.responseText));
       } else {
-        reject(new Error(`Cloudinary respondió ${xhr.status}`));
+        reject(parseCloudinaryError(xhr));
       }
     };
 
-    xhr.onerror = () => reject(new Error("Error de red"));
+    xhr.onerror = () => reject({ kind: "network" });
     xhr.send(data);
   });
+}
+
+function parseCloudinaryError(xhr) {
+  try {
+    const body = JSON.parse(xhr.responseText);
+    const message = body?.error?.message || "";
+    if (/preset/i.test(message) && /(not found|disabled|invalid)/i.test(message)) {
+      return { kind: "preset", message };
+    }
+    return { kind: "cloudinary", message: message || `HTTP ${xhr.status}` };
+  } catch {
+    return { kind: "cloudinary", message: `HTTP ${xhr.status}` };
+  }
+}
+
+function friendlyUploadError(err) {
+  if (err?.kind === "preset") {
+    return "la configuración de subida del evento no es válida, avisale al organizador";
+  }
+  if (err?.kind === "network") {
+    return "problema de conexión";
+  }
+  return err?.message || "error desconocido";
+}
+
+/* ==============================================================
+   Log a backend propio para estadísticas globales (Mejora 4).
+   Best-effort: si falla, no afecta la subida real a Cloudinary.
+================================================================= */
+function logUploadToBackend(file) {
+  try {
+    fetch(LOG_UPLOAD_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceId: DEVICE_ID,
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        timestamp: new Date().toISOString(),
+      }),
+      keepalive: true,
+    }).catch(() => {
+      /* silencioso: esto es solo para estadísticas del organizador */
+    });
+  } catch {
+    /* no-op */
+  }
 }
 
 /* ==============================================================
@@ -287,7 +489,7 @@ function showProgress(show) {
   progressWrap.hidden = !show;
   if (show) {
     progressFill.style.width = "0%";
-    progressLabel.textContent = "Subiendo 0%";
+    progressLabel.textContent = "Enviando 0%";
   }
 }
 

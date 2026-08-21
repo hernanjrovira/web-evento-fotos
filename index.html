@@ -1,77 +1,167 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>Sube tus fotos del evento</title>
-<meta name="description" content="Compartí tus fotos y videos del evento en un toque, sin login." />
-<link rel="stylesheet" href="styles.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Álbum de Cumpleaños de Isabel - ¡Sube tus fotos mágicas!</title>
+  <meta name="description"
+    content="Sube tus fotos y videos para el álbum de cumpleaños de Isabel. Sin cuentas, sin líos." />
+
+  <!-- Google Fonts: Quicksand & Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Quicksand:wght@500;600;700;800&family=Playfair+Display:ital,wght@1,600&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
 
+  <!-- Flash overlay for upload success -->
   <div class="flash" id="flash" aria-hidden="true"></div>
+
+  <!-- Decorative woodland animals background -->
+  <aside class="decorations-layer" aria-hidden="true">
+    <!-- Top Owls -->
+    <div class="deco-animal deco-owl-top-left" title="Búho">
+      <img src="assets/owl_top_left.png" alt="" />
+    </div>
+    <div class="deco-animal deco-owl-top-right" title="Búho">
+      <img src="assets/owl_top_right.png" alt="" />
+    </div>
+
+    <!-- Mid Animals -->
+    <div class="deco-animal deco-fox-left" title="Zorrito">
+      <img src="assets/fox_left.png" alt="" />
+    </div>
+    <div class="deco-animal deco-squirrel-right" title="Ardillita">
+      <img src="assets/squirrel_right.png" alt="" />
+    </div>
+
+    <!-- Bottom Animals -->
+    <div class="deco-animal deco-bear-bottom-left" title="Osito">
+      <img src="assets/bear_bottom_left.png" alt="" />
+    </div>
+    <div class="deco-animal deco-owl-bottom-right" title="Búho">
+      <img src="assets/owl_bottom_right.png" alt="" />
+    </div>
+  </aside>
+
+  <!-- Ambient floating petals/sparkles -->
+  <div class="sparkles-container" aria-hidden="true">
+    <span class="sparkle s1">🌸</span>
+    <span class="sparkle s2">✨</span>
+    <span class="sparkle s3">🌸</span>
+    <span class="sparkle s4">✨</span>
+    <span class="sparkle s5">🌸</span>
+  </div>
+
+  <!-- Session idle overlay -->
+  <div class="idle-overlay" id="idle-overlay" hidden>
+    <div class="idle-card">
+      <div class="idle-icon">🌸</div>
+      <p class="idle-title">Tu sesión expiró</p>
+      <p class="idle-text">Pasaron 30 minutos sin actividad. Recargá la página para seguir subiendo fotos mágicas.</p>
+      <button type="button" class="idle-reload-btn" id="idle-reload-btn">Recargar página</button>
+    </div>
+  </div>
 
   <main class="page">
 
+    <!-- Header Section -->
     <header class="intro">
-      <p class="eyebrow">Álbum del evento</p>
-      <h1 class="heading">Sube tus fotos<br>del evento</h1>
-      <p class="subheading">Elegí las fotos y videos que quieras compartir. Sin cuentas, sin contraseñas.</p>
+      <div class="isabel-avatar-container">
+        <div class="isabel-glow-ring" aria-hidden="true"></div>
+        <img src="assets/isabel_ladybug.png" alt="Isabel" class="isabel-hero-photo" />
+      </div>
+      <p class="eyebrow">ÁLBUM DE CUMPLEAÑOS DE ISABEL</p>
+      <h1 class="heading">¡Subí tus fotos y videos!</h1>
+      <p class="subheading">Compartinos tus fotos y videos para crear recuerdos.</p>
     </header>
 
+    <!-- Upload Form -->
     <form id="upload-form" class="uploader" novalidate>
 
       <label for="file-input" class="dropzone" id="dropzone">
+        <!-- Floral corners and borders -->
+        <span class="floral-corner floral-tl" aria-hidden="true"></span>
+        <span class="floral-corner floral-tr" aria-hidden="true"></span>
+        <span class="floral-corner floral-bl" aria-hidden="true"></span>
+        <span class="floral-corner floral-br" aria-hidden="true"></span>
+
+        <!-- Viewfinder brackets -->
         <span class="corner corner--tl" aria-hidden="true"></span>
         <span class="corner corner--tr" aria-hidden="true"></span>
         <span class="corner corner--bl" aria-hidden="true"></span>
         <span class="corner corner--br" aria-hidden="true"></span>
 
-        <svg class="dropzone-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-          <rect x="6" y="18" width="52" height="38" rx="4" stroke="currentColor" stroke-width="3"/>
-          <path d="M6 24 L20 18 H44 L58 24" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
-          <circle cx="32" cy="38" r="10" stroke="currentColor" stroke-width="3"/>
-          <circle cx="48" cy="26" r="2.4" fill="currentColor"/>
-        </svg>
+        <!-- Floral wreath overlay -->
+        <div class="floral-border-deco" aria-hidden="true"></div>
+
+        <!-- Camera Icon -->
+        <div class="camera-icon-wrap">
+          <svg class="dropzone-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+            <rect x="8" y="18" width="48" height="36" rx="6" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" />
+            <path d="M22 18 L25 12 H39 L42 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+              stroke-linejoin="round" />
+            <circle cx="32" cy="36" r="10" stroke="currentColor" stroke-width="2.5" />
+            <circle cx="32" cy="36" r="4.5" stroke="currentColor" stroke-width="1.8" fill="none" opacity="0.6" />
+            <circle cx="47" cy="25" r="2.2" fill="currentColor" />
+          </svg>
+        </div>
 
         <span class="dropzone-text">
-          <strong>Arrastrá tus archivos aquí</strong>
-          <span>o tocá para elegir desde tu galería</span>
+          <strong class="dropzone-title">Tocá acá para subir fotos y videos</strong>
+          <span class="dropzone-sub">y elegí desde tu galería</span>
         </span>
 
-        <input
-          type="file"
-          id="file-input"
-          name="files"
-          accept="image/*,video/*"
-          multiple
-          class="file-input"
-        />
+        <input type="file" id="file-input" name="files" accept="image/*,video/*" multiple class="file-input"
+          aria-label="Seleccionar fotos y videos" />
       </label>
 
+      <!-- Selected Files Preview Grid -->
       <ul class="file-list" id="file-list" aria-live="polite"></ul>
 
+      <!-- Submit Button -->
       <button type="submit" class="submit-btn" id="submit-btn" disabled>
-        Subir
+        ¡Enviar!
       </button>
 
+      <!-- Progress Bar -->
       <div class="progress-wrap" id="progress-wrap" hidden>
         <div class="progress-track">
           <div class="progress-fill" id="progress-fill"></div>
         </div>
-        <p class="progress-label" id="progress-label">Subiendo 0%</p>
+        <p class="progress-label" id="progress-label">Enviando 0%</p>
       </div>
 
+      <!-- Status Feedback -->
       <p class="status" id="status" role="status" aria-live="polite"></p>
 
     </form>
 
+    <!-- Session Stats Badge -->
+    <div class="session-counter-wrapper">
+      <p class="session-counter" id="session-counter" aria-live="polite"></p>
+    </div>
+
+    <!-- Center Mascot (Cute Fox) -->
+    <div class="bottom-mascot" aria-hidden="true">
+      <img src="assets/fox_bottom_center.png" alt="Zorrito mágico" />
+    </div>
+
+    <!-- Footer Note -->
     <footer class="foot-note">
-      Tus fotos se suben directo a la nube del evento. Nadie necesita crear una cuenta.
+      Tus fotos y videos se comparten con los papis de Isabel. <br>¡Muchas gracias por tu participación!
     </footer>
 
   </main>
 
   <script src="script.js"></script>
 </body>
+
 </html>
