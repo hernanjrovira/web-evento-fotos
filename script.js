@@ -474,11 +474,20 @@ function logUploadToBackend(file) {
         timestamp: new Date().toISOString(),
       }),
       keepalive: true,
-    }).catch(() => {
-      /* silencioso: esto es solo para estadísticas del organizador */
-    });
-  } catch {
-    /* no-op */
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errText = await res.text();
+          console.warn("[Stats Log] Error registrando en backend:", res.status, errText);
+        } else {
+          console.log("[Stats Log] Subida registrada con éxito en Supabase.");
+        }
+      })
+      .catch((err) => {
+        console.warn("[Stats Log] Fallo de conexión con endpoint de estadísticas:", err);
+      });
+  } catch (err) {
+    console.warn("[Stats Log] Excepción al registrar:", err);
   }
 }
 
