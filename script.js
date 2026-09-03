@@ -17,8 +17,12 @@ const MAX_VIDEO_MB = 300;
 const MAX_FILES = 50;
 
 /* Endpoint propio (Vercel Serverless Function) para estadísticas
-   globales. Es "best effort": si falla, no interrumpe la subida real. */
-const LOG_UPLOAD_ENDPOINT = "/api/log-upload";
+   globales. Es "best effort": si falla, no interrumpe la subida real.
+   Si se prueba en local (localhost / 127.0.0.1), apunta al backend en Vercel. */
+const LOG_UPLOAD_ENDPOINT =
+  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "https://web-evento-fotos.vercel.app/api/log-upload"
+    : "/api/log-upload";
 
 /* Minutos de inactividad antes de mostrar el aviso de sesión expirada. */
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
