@@ -4,22 +4,14 @@
 // estadísticas globales del evento (por dispositivo, acumulables entre
 // visitas). Requiere las variables de entorno SUPABASE_URL y
 // SUPABASE_SERVICE_KEY configuradas en el proyecto de Vercel.
+//
+// Por qué Supabase y no un archivo JSON en el servidor: las funciones
+// serverless de Vercel no tienen disco persistente. Cada invocación puede
+// correr en una instancia nueva y los despliegues no comparten estado, así
+// que escribir un stats.json local se perdería o quedaría inconsistente
+// entre requests. Supabase (o cualquier base de datos externa) sí persiste.
 
 module.exports = async (req, res) => {
-  // Configuración de CORS por si se invoca desde otro origen
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
-  );
-
-  if (req.method === "OPTIONS") {
-    res.status(200).end();
-    return;
-  }
-
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método no permitido" });
     return;
@@ -33,9 +25,6 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const supabaseUrl = SUPABASE_URL.trim().replace(/\/+$/, "");
-  const supabaseKey = SUPABASE_SERVICE_KEY.trim();
-
   let body = req.body;
   if (!body || typeof body === "string") {
     try {
@@ -45,7 +34,7 @@ module.exports = async (req, res) => {
     }
   }
 
-  const { deviceId, fileName, fileSize, mimeType } = body || {};
+  const { deviceId, fileName, fileSize, mimeType, url } = body || {};
   if (!deviceId || !fileName || !fileSize) {
     res.status(400).json({ error: "Faltan datos (deviceId, fileName, fileSize)" });
     return;
@@ -63,15 +52,15 @@ module.exports = async (req, res) => {
 
   const baseHeaders = {
     "Content-Type": "application/json",
-    apikey: supabaseKey,
-    Authorization: `Bearer ${supabaseKey}`,
+    apikey: SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
   };
 
   try {
     // 1) Traer el registro actual del dispositivo (si existe), para poder
     //    ACUMULAR en vez de sobrescribir cuando vuelve en otro momento.
     const getRes = await fetch(
-      `${supabaseUrl}/rest/v1/devices?device_id=eq.${encodeURIComponent(deviceId)}&select=first_seen,total_files,total_mb`,
+      `${SUPABASE_URL}/rest/v1/devices?device_id=eq.${encodeURIComponent(deviceId)}&select=first_seen,total_files,total_mb`,
       { headers: baseHeaders }
     );
     const existingRows = getRes.ok ? await getRes.json() : [];
@@ -87,7 +76,7 @@ module.exports = async (req, res) => {
     };
 
     // Upsert real vía PostgREST: on_conflict + Prefer: resolution=merge-duplicates
-    const upsertRes = await fetch(`${supabaseUrl}/rest/v1/devices?on_conflict=device_id`, {
+    const upsertRes = await fetch(`${SUPABASE_URL}/rest/v1/devices?on_conflict=device_id`, {
       method: "POST",
       headers: {
         ...baseHeaders,
@@ -98,11 +87,11 @@ module.exports = async (req, res) => {
 
     if (!upsertRes.ok) {
       const detail = await upsertRes.text();
-      throw new Error(`No se pudo actualizar el dispositivo en 'devices': ${detail}`);
+      throw new Error(`No se pudo actualizar el dispositivo: ${detail}`);
     }
 
     // 2) Guardar el detalle de este archivo en el historial (tabla separada).
-    const uploadRes = await fetch(`${supabaseUrl}/rest/v1/uploads`, {
+    await fetch(`${SUPABASE_URL}/rest/v1/uploads`, {
       method: "POST",
       headers: { ...baseHeaders, Prefer: "return=minimal" },
       body: JSON.stringify([
@@ -111,16 +100,12 @@ module.exports = async (req, res) => {
           filename: fileName,
           size_mb: sizeMb,
           mime_type: mimeType || null,
+          url: url || null,
           ip,
           created_at: nowIso,
         },
       ]),
     });
-
-    if (!uploadRes.ok) {
-      const detail = await uploadRes.text();
-      throw new Error(`No se pudo registrar la subida en 'uploads': ${detail}`);
-    }
 
     res.status(200).json({ ok: true });
   } catch (err) {

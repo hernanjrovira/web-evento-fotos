@@ -1,0 +1,13 @@
+{
+  "name": "evento-fotos",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Página estática + funciones serverless de Vercel para recolectar fotos y videos del evento (Cloudflare R2) y registrar estadísticas globales (Supabase).",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.632.0",
+    "@aws-sdk/s3-request-presigner": "^3.632.0"
+  }
+}

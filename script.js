@@ -1,28 +1,21 @@
 /* ==============================================================
-   CONFIGURACIÓN — completá estos valores con los tuyos.
-   Ver README.md para el paso a paso de Cloudinary y del backend.
+   CONFIGURACIÓN — el almacenamiento (Cloudflare R2) vive del lado del
+   servidor (variables de entorno en Vercel, ver README.md). El frontend
+   solo necesita saber a qué endpoint propio pedirle la URL de subida.
 ================================================================= */
-const CLOUDINARY_CONFIG = {
-  cloudName: "rrromouo",
-  uploadPreset: "evento-fotos-isa",
-  folder: "evento",
-};
+const PRESIGN_ENDPOINT = "/api/presign-upload";
 
-/* Límites de validación en el frontend.
-   El plan free de Cloudinary también aplica sus propios límites de
-   tamaño; si una subida falla por tamaño, ajustá estos valores según
-   lo que veas en tu dashboard de Cloudinary. */
+/* Límites de validación en el frontend. El backend valida tipo (imagen o
+   video) pero NO tamaño — un PUT pre-firmado no impone límite de tamaño
+   por sí solo, así que este control del lado del cliente es la única
+   barrera de tamaño. Ver README para más detalle. */
 const MAX_IMAGE_MB = 30;
 const MAX_VIDEO_MB = 300;
 const MAX_FILES = 50;
 
 /* Endpoint propio (Vercel Serverless Function) para estadísticas
-   globales. Es "best effort": si falla, no interrumpe la subida real.
-   Si se prueba en local (localhost / 127.0.0.1), apunta al backend en Vercel. */
-const LOG_UPLOAD_ENDPOINT =
-  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? "https://web-evento-fotos.vercel.app/api/log-upload"
-    : "/api/log-upload";
+   globales. Es "best effort": si falla, no interrumpe la subida real. */
+const LOG_UPLOAD_ENDPOINT = "/api/log-upload";
 
 /* Minutos de inactividad antes de mostrar el aviso de sesión expirada. */
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
@@ -104,7 +97,7 @@ function renderSessionCounter(stats) {
     sessionCounterEl.textContent = "";
     return;
   }
-  sessionCounterEl.textContent = `✨ Fotos mágicas subidas: ${s.count} | Tamaño: ${s.totalMb.toFixed(1)} MB`;
+  sessionCounterEl.textContent = `📊 Fotos subidas: ${s.count} | Tamaño total: ${s.totalMb.toFixed(1)} MB`;
 }
 
 renderSessionCounter();
@@ -140,7 +133,7 @@ idleReloadBtn.addEventListener("click", () => {
   window.location.reload();
 });
 
-// scheduleIdleCheck();
+scheduleIdleCheck();
 
 /* ==============================================================
    Selección de archivos (input nativo + drag & drop)
@@ -279,24 +272,15 @@ function removeFile(id) {
 }
 
 function updateSubmitState() {
-  const validCount = selectedFiles.filter((entry) => entry.valid).length;
-  submitBtn.disabled = validCount === 0 || isUploading;
-  if (isUploading) {
-    submitBtn.textContent = "Enviando fotos...";
-  } else if (validCount > 1) {
-    submitBtn.textContent = `Enviar ${validCount} Fotos`;
-  } else if (validCount === 1) {
-    submitBtn.textContent = "Enviar 1 Foto";
-  } else {
-    submitBtn.textContent = "¡Enviar!";
-  }
+  const hasValidFile = selectedFiles.some((entry) => entry.valid);
+  submitBtn.disabled = !hasValidFile || isUploading;
 }
 
 /* ==============================================================
-   Subida a Cloudinary (unsigned upload preset, sin login)
+   Subida a Cloudflare R2 (presigned PUT, sin login)
    Mejora 1: progreso real por bytes + fase "Procesando" mientras
-   Cloudinary confirma, y el botón queda deshabilitado hasta que
-   TODAS las respuestas fueron confirmadas.
+   R2 confirma, y el botón queda deshabilitado hasta que TODAS las
+   respuestas fueron confirmadas.
 ================================================================= */
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -308,19 +292,8 @@ form.addEventListener("submit", async (e) => {
     return;
   }
 
-  if (
-    CLOUDINARY_CONFIG.cloudName === "TU_CLOUD_NAME" ||
-    CLOUDINARY_CONFIG.uploadPreset === "TU_UPLOAD_PRESET"
-  ) {
-    setStatus(
-      "Falta configurar Cloudinary en script.js (cloudName / uploadPreset). Ver README.",
-      "error"
-    );
-    return;
-  }
-
   isUploading = true;
-  updateSubmitState();
+  submitBtn.disabled = true;
   renderFileList(); // oculta los botones de "quitar" mientras sube
   setStatus("", "");
   showProgress(true);
@@ -336,11 +309,11 @@ form.addEventListener("submit", async (e) => {
     progressFill.style.width = pctSent + "%";
 
     if (pctSent < 100) {
-      progressLabel.textContent = `Enviando ${pctSent}%`;
+      progressLabel.textContent = `Subiendo... ${pctSent}%`;
     } else if (confirmedCount < toUpload.length) {
-      progressLabel.textContent = "Guardando en el álbum...";
+      progressLabel.textContent = "Procesando...";
     } else {
-      progressLabel.textContent = "✨ ¡Fotos mágicas subidas!";
+      progressLabel.textContent = "✅ Subida exitosa";
     }
   };
 
@@ -348,17 +321,17 @@ form.addEventListener("submit", async (e) => {
 
   await Promise.all(
     toUpload.map((entry, index) =>
-      uploadToCloudinary(entry.file, (loaded) => {
+      uploadToR2(entry.file, (loaded) => {
         sentBytesByFile[index] = loaded;
         updateOverallProgress();
       })
-        .then(() => {
+        .then((result) => {
           confirmedCount += 1;
           sentBytesByFile[index] = entry.file.size;
           entry.confirmed = true;
           markFileConfirmed(entry.id);
           registerSuccessfulUpload(entry.file.size);
-          logUploadToBackend(entry.file);
+          logUploadToBackend(entry.file, result?.url);
           updateOverallProgress();
         })
         .catch((err) => {
@@ -372,11 +345,11 @@ form.addEventListener("submit", async (e) => {
   isUploading = false;
 
   if (failedCount === 0) {
-    progressLabel.textContent = "✨ ¡Fotos mágicas subidas con éxito!";
+    progressLabel.textContent = "✅ Subida exitosa";
     setStatus(
       confirmedCount === 1
-        ? "🌸 ¡Listo! Tu foto mágica se subió correctamente."
-        : `🌸 ¡Listo! Se subieron ${confirmedCount} fotos mágicas correctamente.`,
+        ? "¡Listo! Tu archivo se subió correctamente."
+        : `¡Listo! Se subieron ${confirmedCount} archivos correctamente.`,
       "success"
     );
     fireFlash();
@@ -384,9 +357,9 @@ form.addEventListener("submit", async (e) => {
   } else if (confirmedCount > 0) {
     const firstError = toUpload.find((e) => e.lastError)?.lastError;
     setStatus(
-      `Se subieron ${confirmedCount} fotos, pero ${failedCount} no se pudieron subir` +
-      (firstError ? ` (${firstError})` : "") +
-      ". Probá de nuevo con esas.",
+      `Se subieron ${confirmedCount} archivos, pero ${failedCount} no se pudieron subir` +
+        (firstError ? ` (${firstError})` : "") +
+        ". Probá de nuevo con esos.",
       "error"
     );
     selectedFiles = selectedFiles.filter((entry) => !entry.valid || !entry.confirmed);
@@ -398,62 +371,67 @@ form.addEventListener("submit", async (e) => {
     );
   }
 
-  setTimeout(() => showProgress(false), failedCount === 0 ? 1200 : 0);
+  setTimeout(() => showProgress(false), failedCount === 0 ? 900 : 0);
   renderFileList();
   updateSubmitState();
 });
 
-function uploadToCloudinary(file, onProgress) {
+/* Paso 1: pedir la URL pre-firmada a nuestro backend.
+   Paso 2: PUT directo del archivo original (intacto, sin recomprimir)
+   contra esa URL, con progreso real de bytes vía XHR. */
+function uploadToR2(file, onProgress) {
   return new Promise((resolve, reject) => {
-    const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/auto/upload`;
-    const data = new FormData();
-    data.append("file", file);
-    data.append("upload_preset", CLOUDINARY_CONFIG.uploadPreset);
-    if (CLOUDINARY_CONFIG.folder) {
-      data.append("folder", CLOUDINARY_CONFIG.folder);
-    }
+    fetch(PRESIGN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name, contentType: file.type }),
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw { kind: "presign", message: body?.error };
+        }
+        return r.json();
+      })
+      .then(({ uploadUrl, publicUrl }) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl);
+        // El Content-Type debe coincidir con el usado para firmar la URL.
+        xhr.setRequestHeader("Content-Type", file.type);
 
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url);
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) onProgress(e.loaded);
+        });
 
-    // Progreso REAL de bytes enviados (evento nativo de XHR, no simulado).
-    xhr.upload.addEventListener("progress", (e) => {
-      if (e.lengthComputable) onProgress(e.loaded);
-    });
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            onProgress(file.size);
+            resolve({ url: publicUrl });
+          } else {
+            reject(parseR2Error(xhr));
+          }
+        };
 
-    xhr.onload = () => {
-      // Los bytes ya llegaron (100%), pero recién acá tenemos la
-      // confirmación real del servidor — por eso la fase "Procesando"
-      // vive entre el último evento de progreso y este callback.
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress(file.size);
-        resolve(JSON.parse(xhr.responseText));
-      } else {
-        reject(parseCloudinaryError(xhr));
-      }
-    };
-
-    xhr.onerror = () => reject({ kind: "network" });
-    xhr.send(data);
+        xhr.onerror = () => reject({ kind: "network" });
+        xhr.send(file); // archivo original, intacto, sin recomprimir
+      })
+      .catch((err) => reject(err?.kind ? err : { kind: "network", message: String(err) }));
   });
 }
 
-function parseCloudinaryError(xhr) {
-  try {
-    const body = JSON.parse(xhr.responseText);
-    const message = body?.error?.message || "";
-    if (/preset/i.test(message) && /(not found|disabled|invalid)/i.test(message)) {
-      return { kind: "preset", message };
-    }
-    return { kind: "cloudinary", message: message || `HTTP ${xhr.status}` };
-  } catch {
-    return { kind: "cloudinary", message: `HTTP ${xhr.status}` };
+function parseR2Error(xhr) {
+  if (xhr.status === 403) {
+    return { kind: "expired", message: "el enlace de subida expiró, probá de nuevo" };
   }
+  return { kind: "r2", message: `HTTP ${xhr.status}` };
 }
 
 function friendlyUploadError(err) {
-  if (err?.kind === "preset") {
-    return "la configuración de subida del evento no es válida, avisale al organizador";
+  if (err?.kind === "presign") {
+    return err.message || "no se pudo iniciar la subida";
+  }
+  if (err?.kind === "expired") {
+    return err.message;
   }
   if (err?.kind === "network") {
     return "problema de conexión";
@@ -463,9 +441,9 @@ function friendlyUploadError(err) {
 
 /* ==============================================================
    Log a backend propio para estadísticas globales (Mejora 4).
-   Best-effort: si falla, no afecta la subida real a Cloudinary.
+   Best-effort: si falla, no afecta la subida real a R2.
 ================================================================= */
-function logUploadToBackend(file) {
+function logUploadToBackend(file, url) {
   try {
     fetch(LOG_UPLOAD_ENDPOINT, {
       method: "POST",
@@ -475,23 +453,15 @@ function logUploadToBackend(file) {
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type,
+        url: url || null,
         timestamp: new Date().toISOString(),
       }),
       keepalive: true,
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errText = await res.text();
-          console.warn("[Stats Log] Error registrando en backend:", res.status, errText);
-        } else {
-          console.log("[Stats Log] Subida registrada con éxito en Supabase.");
-        }
-      })
-      .catch((err) => {
-        console.warn("[Stats Log] Fallo de conexión con endpoint de estadísticas:", err);
-      });
-  } catch (err) {
-    console.warn("[Stats Log] Excepción al registrar:", err);
+    }).catch(() => {
+      /* silencioso: esto es solo para estadísticas del organizador */
+    });
+  } catch {
+    /* no-op */
   }
 }
 
@@ -502,7 +472,7 @@ function showProgress(show) {
   progressWrap.hidden = !show;
   if (show) {
     progressFill.style.width = "0%";
-    progressLabel.textContent = "Enviando 0%";
+    progressLabel.textContent = "Subiendo... 0%";
   }
 }
 
