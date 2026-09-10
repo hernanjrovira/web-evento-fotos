@@ -9,8 +9,8 @@ const PRESIGN_ENDPOINT = "/api/presign-upload";
    video) pero NO tamaño — un PUT pre-firmado no impone límite de tamaño
    por sí solo, así que este control del lado del cliente es la única
    barrera de tamaño. Ver README para más detalle. */
-const MAX_IMAGE_MB = 30;
-const MAX_VIDEO_MB = 300;
+const MAX_IMAGE_MB = 250;
+const MAX_VIDEO_MB = 1024;
 const MAX_FILES = 50;
 
 /* Endpoint propio (Vercel Serverless Function) para estadísticas
@@ -358,8 +358,8 @@ form.addEventListener("submit", async (e) => {
     const firstError = toUpload.find((e) => e.lastError)?.lastError;
     setStatus(
       `Se subieron ${confirmedCount} archivos, pero ${failedCount} no se pudieron subir` +
-        (firstError ? ` (${firstError})` : "") +
-        ". Probá de nuevo con esos.",
+      (firstError ? ` (${firstError})` : "") +
+      ". Probá de nuevo con esos.",
       "error"
     );
     selectedFiles = selectedFiles.filter((entry) => !entry.valid || !entry.confirmed);
